@@ -5,7 +5,9 @@ export async function authFetch(
   input: RequestInfo | URL,
   init: RequestInit = {},
 ): Promise<Response> {
-  const response = await fetchWithToken(input, init)
+  const base = new Request(input, init)
+
+  const response = await fetchWithToken(base.clone())
   if (response.status !== 401) {
     return response
   }
@@ -16,14 +18,13 @@ export async function authFetch(
     return response
   }
 
-  return fetchWithToken(input, init)
+  return fetchWithToken(base.clone())
 }
 
-function fetchWithToken(input: RequestInfo | URL, init: RequestInit): Promise<Response> {
+function fetchWithToken(request: Request): Promise<Response> {
   const token = useAuthStore.getState().accessToken
-  const headers = new Headers(init.headers)
   if (token) {
-    headers.set('Authorization', `Bearer ${token}`)
+    request.headers.set('Authorization', `Bearer ${token}`)
   }
-  return fetch(input, { ...init, headers })
+  return fetch(request)
 }

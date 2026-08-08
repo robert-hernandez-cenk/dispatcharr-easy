@@ -9,6 +9,13 @@ vi.mock('../auth/authClient', () => ({
 
 import { refreshAccessToken, logout } from '../auth/authClient'
 
+// authFetch constructs a real Request internally. In a browser, `new Request('/api/...')`
+// resolves relative URLs against document.baseURI automatically. This repo's Node runtime's
+// global Request (from undici, not jsdom) has no such base and throws on a relative URL, so
+// tests use an absolute URL here purely to work around that Node-in-tests artifact — it has
+// no bearing on production behavior, where authFetch always runs in a real browser.
+const API_URL = 'http://localhost/api/channels/channels/'
+
 function response(status: number): Response {
   return { status, ok: status < 400 } as Response
 }
@@ -29,37 +36,42 @@ describe('authFetch', () => {
     const fetchMock = vi.fn().mockResolvedValue(response(200))
     vi.stubGlobal('fetch', fetchMock)
 
-    await authFetch('/api/channels/channels/')
+    await authFetch(API_URL)
 
-    const [, init] = fetchMock.mock.calls[0]
-    expect((init.headers as Headers).get('Authorization')).toBe('Bearer a1')
+    const [request] = fetchMock.mock.calls[0]
+    expect((request as Request).headers.get('Authorization')).toBe('Bearer a1')
   })
 
   it('makes no Authorization header when there is no access token', async () => {
     const fetchMock = vi.fn().mockResolvedValue(response(200))
     vi.stubGlobal('fetch', fetchMock)
 
-    await authFetch('/api/channels/channels/')
+    await authFetch(API_URL)
 
-    const [, init] = fetchMock.mock.calls[0]
-    expect((init.headers as Headers).has('Authorization')).toBe(false)
+    const [request] = fetchMock.mock.calls[0]
+    expect((request as Request).headers.has('Authorization')).toBe(false)
   })
 
   it('refreshes and retries once on a 401, then succeeds', async () => {
     useAuthStore.setState({ accessToken: 'expired', isAuthenticated: true })
-    const fetchMock = vi.fn().mockResolvedValueOnce(response(401)).mockResolvedValueOnce(response(200))
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(401))
+      .mockResolvedValueOnce(response(200))
     vi.stubGlobal('fetch', fetchMock)
     vi.mocked(refreshAccessToken).mockImplementation(async () => {
       useAuthStore.setState({ accessToken: 'fresh', isAuthenticated: true })
       return true
     })
 
-    const result = await authFetch('/api/channels/channels/')
+    const result = await authFetch(API_URL)
 
     expect(result.status).toBe(200)
     expect(fetchMock).toHaveBeenCalledTimes(2)
-    const [, secondInit] = fetchMock.mock.calls[1]
-    expect((secondInit.headers as Headers).get('Authorization')).toBe('Bearer fresh')
+    const [secondRequest] = fetchMock.mock.calls[1]
+    expect((secondRequest as Request).headers.get('Authorization')).toBe(
+      'Bearer fresh',
+    )
   })
 
   it('logs out and returns the 401 response when refresh fails', async () => {
@@ -67,9 +79,46 @@ describe('authFetch', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(401)))
     vi.mocked(refreshAccessToken).mockResolvedValue(false)
 
-    const result = await authFetch('/api/channels/channels/')
+    const result = await authFetch(API_URL)
 
     expect(result.status).toBe(401)
     expect(logout).toHaveBeenCalledOnce()
+  })
+
+  it('preserves headers and body across a 401 retry when given a real Request', async () => {
+    useAuthStore.setState({ accessToken: 'expired', isAuthenticated: true })
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(401))
+      .mockResolvedValueOnce(response(200))
+    vi.stubGlobal('fetch', fetchMock)
+    vi.mocked(refreshAccessToken).mockImplementation(async () => {
+      useAuthStore.setState({ accessToken: 'fresh', isAuthenticated: true })
+      return true
+    })
+
+    const body = JSON.stringify({ foo: 'bar' })
+    const request = new Request(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    })
+
+    const result = await authFetch(request)
+
+    expect(result.status).toBe(200)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    const [firstReq] = fetchMock.mock.calls[0]
+    const [secondReq] = fetchMock.mock.calls[1]
+    expect((firstReq as Request).headers.get('Content-Type')).toBe(
+      'application/json',
+    )
+    expect((secondReq as Request).headers.get('Content-Type')).toBe(
+      'application/json',
+    )
+    expect((secondReq as Request).headers.get('Authorization')).toBe(
+      'Bearer fresh',
+    )
+    expect(await (secondReq as Request).clone().text()).toBe(body)
   })
 })
