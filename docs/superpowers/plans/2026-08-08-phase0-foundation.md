@@ -852,17 +852,21 @@ interface AccessTokenResponse {
 }
 
 export async function login(username: string, password: string): Promise<boolean> {
-  const response = await fetch('/api/accounts/token/', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password }),
-  })
-  if (!response.ok) {
+  try {
+    const response = await fetch('/api/accounts/token/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    })
+    if (!response.ok) {
+      return false
+    }
+    const tokens = (await response.json()) as TokenPairResponse
+    useAuthStore.getState().setTokens(tokens)
+    return true
+  } catch {
     return false
   }
-  const tokens = (await response.json()) as TokenPairResponse
-  useAuthStore.getState().setTokens(tokens)
-  return true
 }
 
 let refreshInFlight: Promise<boolean> | null = null
@@ -881,23 +885,34 @@ async function performRefresh(): Promise<boolean> {
   if (!refresh) {
     return false
   }
-  const response = await fetch('/api/accounts/token/refresh/', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ refresh }),
-  })
-  if (!response.ok) {
+  try {
+    const response = await fetch('/api/accounts/token/refresh/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh }),
+    })
+    if (!response.ok) {
+      return false
+    }
+    const { access } = (await response.json()) as AccessTokenResponse
+    useAuthStore.getState().setTokens({ access })
+    return true
+  } catch {
     return false
   }
-  const { access } = (await response.json()) as AccessTokenResponse
-  useAuthStore.getState().setTokens({ access })
-  return true
 }
 
 export function logout(): void {
   useAuthStore.getState().clear()
 }
 ```
+
+`login` and `performRefresh` wrap their fetch-and-parse logic in a try/catch: a network failure (e.g. the
+device is offline, DNS fails, or the request is aborted) makes `fetch` itself reject rather than resolve
+with a non-ok `Response`, so without this the rejection would propagate out of `login`/`refreshAccessToken`
+as an unhandled promise rejection instead of the documented `Promise<boolean>` contract. Catching and
+returning `false` keeps network errors indistinguishable from "server said no" for callers, which is the
+right behavior here since neither `authFetch` nor any UI code needs to tell the two apart.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -941,6 +956,13 @@ vi.mock('../auth/authClient', () => ({
 
 import { refreshAccessToken, logout } from '../auth/authClient'
 
+// authFetch constructs a real Request internally. In a browser, `new Request('/api/...')`
+// resolves relative URLs against document.baseURI automatically. This repo's Node runtime's
+// global Request (from undici, not jsdom) has no such base and throws on a relative URL, so
+// tests use an absolute URL here purely to work around that Node-in-tests artifact — it has
+// no bearing on production behavior, where authFetch always runs in a real browser.
+const API_URL = 'http://localhost/api/channels/channels/'
+
 function response(status: number): Response {
   return { status, ok: status < 400 } as Response
 }
@@ -961,7 +983,7 @@ describe('authFetch', () => {
     const fetchMock = vi.fn().mockResolvedValue(response(200))
     vi.stubGlobal('fetch', fetchMock)
 
-    await authFetch('/api/channels/channels/')
+    await authFetch(API_URL)
 
     const [request] = fetchMock.mock.calls[0]
     expect((request as Request).headers.get('Authorization')).toBe('Bearer a1')
@@ -971,7 +993,7 @@ describe('authFetch', () => {
     const fetchMock = vi.fn().mockResolvedValue(response(200))
     vi.stubGlobal('fetch', fetchMock)
 
-    await authFetch('/api/channels/channels/')
+    await authFetch(API_URL)
 
     const [request] = fetchMock.mock.calls[0]
     expect((request as Request).headers.has('Authorization')).toBe(false)
@@ -986,7 +1008,7 @@ describe('authFetch', () => {
       return true
     })
 
-    const result = await authFetch('/api/channels/channels/')
+    const result = await authFetch(API_URL)
 
     expect(result.status).toBe(200)
     expect(fetchMock).toHaveBeenCalledTimes(2)
@@ -999,7 +1021,7 @@ describe('authFetch', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(401)))
     vi.mocked(refreshAccessToken).mockResolvedValue(false)
 
-    const result = await authFetch('/api/channels/channels/')
+    const result = await authFetch(API_URL)
 
     expect(result.status).toBe(401)
     expect(logout).toHaveBeenCalledOnce()
@@ -1007,7 +1029,16 @@ describe('authFetch', () => {
 
   it('preserves headers and body across a 401 retry when given a real Request', async () => {
     useAuthStore.setState({ accessToken: 'expired', isAuthenticated: true })
-    const fetchMock = vi.fn().mockResolvedValueOnce(response(401)).mockResolvedValueOnce(response(200))
+    // A real fetch reads (and thereby consumes) the Request body. If authFetch retried with
+    // the same already-read Request instead of a fresh `.clone()`, the second call below would
+    // throw `TypeError: Body is unusable` instead of silently succeeding — that's what makes
+    // `.clone()` load-bearing and this test an actual regression guard rather than a no-op.
+    const seenBodies: string[] = []
+    let statusCount = 0
+    const fetchMock = vi.fn(async (req: Request) => {
+      seenBodies.push(await req.text())
+      return statusCount++ === 0 ? response(401) : response(200)
+    })
     vi.stubGlobal('fetch', fetchMock)
     vi.mocked(refreshAccessToken).mockImplementation(async () => {
       useAuthStore.setState({ accessToken: 'fresh', isAuthenticated: true })
@@ -1015,7 +1046,7 @@ describe('authFetch', () => {
     })
 
     const body = JSON.stringify({ foo: 'bar' })
-    const request = new Request('/api/channels/channels/', {
+    const request = new Request(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body,
@@ -1030,7 +1061,7 @@ describe('authFetch', () => {
     expect((firstReq as Request).headers.get('Content-Type')).toBe('application/json')
     expect((secondReq as Request).headers.get('Content-Type')).toBe('application/json')
     expect((secondReq as Request).headers.get('Authorization')).toBe('Bearer fresh')
-    expect(await (secondReq as Request).clone().text()).toBe(body)
+    expect(seenBodies).toEqual([body, body])
   })
 })
 ```
@@ -1038,7 +1069,11 @@ describe('authFetch', () => {
 This suite drives `authFetch` with both bare string URLs and a real `Request` object carrying a body and
 `Content-Type` header (the last test) — the latter is the shape `openapi-fetch` (Task 10) actually calls
 `authFetch` with for any POST/PUT/PATCH, and is what catches header loss or retry-body corruption that a
-string-URL-only test suite would miss.
+string-URL-only test suite would miss. The mock `fetch` in the last test actually calls `req.text()` on
+every invocation (as a real `fetch` implementation would) so that retrying with an already-consumed,
+non-cloned `Request` throws `TypeError: Body is unusable` — this is what makes the test an effective
+regression guard for the `.clone()` calls in the implementation below, rather than a no-op that would pass
+even if `.clone()` were removed.
 
 - [ ] **Step 2: Run it to verify it fails**
 
@@ -1087,7 +1122,10 @@ function fetchWithToken(request: Request): Promise<Response> {
 
 `openapi-fetch` (Task 10) calls the injected `fetch` as `fetch(request, requestInitExt)`, where `request`
 is already a real `Request` instance carrying all headers (including `Content-Type` for bodied requests)
-and `requestInitExt` is `{}`. Constructing `new Request(input, init)` once — the same merge Fetch itself
+and `requestInitExt` is `undefined` outside Deno (per `node_modules/openapi-fetch/dist/index.mjs`:
+`requestInitExt = supportsRequestInitExt() ? requestInitExt : void 0`) — behaviorally irrelevant here since
+`authFetch`'s own `init: RequestInit = {}` default parameter absorbs the `undefined` either way. Constructing
+`new Request(input, init)` once — the same merge Fetch itself
 performs — and then cloning it per attempt is what makes both a bare string URL (`authFetch('/api/...')`,
 as `openapi-fetch` never calls it, but tests and callers may) and a real `Request` object work identically,
 and what allows the same body to be sent on both the initial attempt and the post-refresh retry without
