@@ -11,7 +11,7 @@
     "test": "vitest run",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "generate-api": "openapi-typescript"
+    "generate-api": "npx --yes openapi-typescript@7.13.0"
   },
   "dependencies": {
     "@mantine/core": "^8.3.18",
@@ -34,7 +34,6 @@
     "eslint-plugin-react-refresh": "^0.5.3",
     "globals": "^17.7.0",
     "jsdom": "^30.0.1",
-    "openapi-typescript": "^7.13.0",
     "prettier": "^3.9.6",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.65.0",
