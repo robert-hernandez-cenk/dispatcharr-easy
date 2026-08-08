@@ -5,7 +5,7 @@ import App from './App'
 
 function renderApp() {
   return render(
-    <MantineProvider>
+    <MantineProvider defaultColorScheme="auto">
       <App />
     </MantineProvider>,
   )

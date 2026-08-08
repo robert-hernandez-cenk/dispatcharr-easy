@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { useAuthStore, getStoredRefreshToken, REFRESH_TOKEN_KEY } from './authStore'
+import {
+  useAuthStore,
+  getStoredRefreshToken,
+  REFRESH_TOKEN_KEY,
+} from './authStore'
 
 describe('useAuthStore', () => {
   beforeEach(() => {
@@ -13,7 +17,9 @@ describe('useAuthStore', () => {
   })
 
   it('setTokens stores the access token in memory and the refresh token in localStorage', () => {
-    useAuthStore.getState().setTokens({ access: 'access-1', refresh: 'refresh-1' })
+    useAuthStore
+      .getState()
+      .setTokens({ access: 'access-1', refresh: 'refresh-1' })
 
     expect(useAuthStore.getState().accessToken).toBe('access-1')
     expect(useAuthStore.getState().isAuthenticated).toBe(true)
@@ -22,7 +28,9 @@ describe('useAuthStore', () => {
   })
 
   it('setTokens without a refresh token leaves the stored refresh token untouched', () => {
-    useAuthStore.getState().setTokens({ access: 'access-1', refresh: 'refresh-1' })
+    useAuthStore
+      .getState()
+      .setTokens({ access: 'access-1', refresh: 'refresh-1' })
     useAuthStore.getState().setTokens({ access: 'access-2' })
 
     expect(useAuthStore.getState().accessToken).toBe('access-2')
@@ -30,7 +38,9 @@ describe('useAuthStore', () => {
   })
 
   it('clear removes the access token and the stored refresh token', () => {
-    useAuthStore.getState().setTokens({ access: 'access-1', refresh: 'refresh-1' })
+    useAuthStore
+      .getState()
+      .setTokens({ access: 'access-1', refresh: 'refresh-1' })
 
     useAuthStore.getState().clear()
 
