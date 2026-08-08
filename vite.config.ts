@@ -1,12 +1,25 @@
 /// <reference types="vitest/config" />
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// https://vite.dev/config/
-export default defineConfig({
-  plugins: [react()],
-  test: {
-    environment: 'jsdom',
-    setupFiles: ['./src/test/setup.ts'],
-  },
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '')
+
+  return {
+    plugins: [react()],
+    server: {
+      proxy: env.DISPATCHARR_DEV_PROXY_TARGET
+        ? {
+            '/api': {
+              target: env.DISPATCHARR_DEV_PROXY_TARGET,
+              changeOrigin: true,
+            },
+          }
+        : undefined,
+    },
+    test: {
+      environment: 'jsdom',
+      setupFiles: ['./src/test/setup.ts'],
+    },
+  }
 })
