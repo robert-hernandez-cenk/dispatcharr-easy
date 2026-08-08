@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { useAuthStore, getStoredRefreshToken, REFRESH_TOKEN_KEY } from './authStore'
+import {
+  useAuthStore,
+  getStoredRefreshToken,
+  REFRESH_TOKEN_KEY,
+} from './authStore'
 import { login, refreshAccessToken, logout } from './authClient'
 
 function jsonResponse(body: unknown, ok = true): Response {
@@ -21,7 +25,9 @@ describe('authClient', () => {
   })
 
   it('login stores both tokens on success', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ access: 'a1', refresh: 'r1' }))
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ access: 'a1', refresh: 'r1' }))
     vi.stubGlobal('fetch', fetchMock)
 
     const result = await login('rchernan', 'correct-password')
@@ -29,7 +35,14 @@ describe('authClient', () => {
     expect(result).toBe(true)
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/accounts/token/',
-      expect.objectContaining({ method: 'POST' }),
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: 'rchernan',
+          password: 'correct-password',
+        }),
+      }),
     )
     expect(useAuthStore.getState().accessToken).toBe('a1')
     expect(getStoredRefreshToken()).toBe('r1')
@@ -38,7 +51,11 @@ describe('authClient', () => {
   it('login returns false and stores nothing on invalid credentials', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue(jsonResponse({ detail: 'No active account found' }, false)),
+      vi
+        .fn()
+        .mockResolvedValue(
+          jsonResponse({ detail: 'No active account found' }, false),
+        ),
     )
 
     const result = await login('rchernan', 'wrong-password')
@@ -59,12 +76,21 @@ describe('authClient', () => {
 
   it('refreshAccessToken updates the access token on success', async () => {
     localStorage.setItem(REFRESH_TOKEN_KEY, 'r1')
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ access: 'a2' })))
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ access: 'a2' }))
+    vi.stubGlobal('fetch', fetchMock)
 
     const result = await refreshAccessToken()
 
     expect(result).toBe(true)
     expect(useAuthStore.getState().accessToken).toBe('a2')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/accounts/token/refresh/',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh: 'r1' }),
+      }),
+    )
   })
 
   it('refreshAccessToken dedups concurrent calls into a single request', async () => {
@@ -72,7 +98,10 @@ describe('authClient', () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ access: 'a2' }))
     vi.stubGlobal('fetch', fetchMock)
 
-    const [first, second] = await Promise.all([refreshAccessToken(), refreshAccessToken()])
+    const [first, second] = await Promise.all([
+      refreshAccessToken(),
+      refreshAccessToken(),
+    ])
 
     expect(first).toBe(true)
     expect(second).toBe(true)
