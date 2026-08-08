@@ -753,7 +753,11 @@ describe('authClient', () => {
     expect(result).toBe(true)
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/accounts/token/',
-      expect.objectContaining({ method: 'POST' }),
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'rchernan', password: 'correct-password' }),
+      }),
     )
     expect(useAuthStore.getState().accessToken).toBe('a1')
     expect(getStoredRefreshToken()).toBe('r1')
@@ -783,12 +787,21 @@ describe('authClient', () => {
 
   it('refreshAccessToken updates the access token on success', async () => {
     localStorage.setItem(REFRESH_TOKEN_KEY, 'r1')
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ access: 'a2' })))
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ access: 'a2' }))
+    vi.stubGlobal('fetch', fetchMock)
 
     const result = await refreshAccessToken()
 
     expect(result).toBe(true)
     expect(useAuthStore.getState().accessToken).toBe('a2')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/accounts/token/refresh/',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh: 'r1' }),
+      }),
+    )
   })
 
   it('refreshAccessToken dedups concurrent calls into a single request', async () => {
@@ -950,8 +963,8 @@ describe('authFetch', () => {
 
     await authFetch('/api/channels/channels/')
 
-    const [, init] = fetchMock.mock.calls[0]
-    expect((init.headers as Headers).get('Authorization')).toBe('Bearer a1')
+    const [request] = fetchMock.mock.calls[0]
+    expect((request as Request).headers.get('Authorization')).toBe('Bearer a1')
   })
 
   it('makes no Authorization header when there is no access token', async () => {
@@ -960,8 +973,8 @@ describe('authFetch', () => {
 
     await authFetch('/api/channels/channels/')
 
-    const [, init] = fetchMock.mock.calls[0]
-    expect((init.headers as Headers).has('Authorization')).toBe(false)
+    const [request] = fetchMock.mock.calls[0]
+    expect((request as Request).headers.has('Authorization')).toBe(false)
   })
 
   it('refreshes and retries once on a 401, then succeeds', async () => {
@@ -977,8 +990,8 @@ describe('authFetch', () => {
 
     expect(result.status).toBe(200)
     expect(fetchMock).toHaveBeenCalledTimes(2)
-    const [, secondInit] = fetchMock.mock.calls[1]
-    expect((secondInit.headers as Headers).get('Authorization')).toBe('Bearer fresh')
+    const [secondRequest] = fetchMock.mock.calls[1]
+    expect((secondRequest as Request).headers.get('Authorization')).toBe('Bearer fresh')
   })
 
   it('logs out and returns the 401 response when refresh fails', async () => {
@@ -991,8 +1004,41 @@ describe('authFetch', () => {
     expect(result.status).toBe(401)
     expect(logout).toHaveBeenCalledOnce()
   })
+
+  it('preserves headers and body across a 401 retry when given a real Request', async () => {
+    useAuthStore.setState({ accessToken: 'expired', isAuthenticated: true })
+    const fetchMock = vi.fn().mockResolvedValueOnce(response(401)).mockResolvedValueOnce(response(200))
+    vi.stubGlobal('fetch', fetchMock)
+    vi.mocked(refreshAccessToken).mockImplementation(async () => {
+      useAuthStore.setState({ accessToken: 'fresh', isAuthenticated: true })
+      return true
+    })
+
+    const body = JSON.stringify({ foo: 'bar' })
+    const request = new Request('/api/channels/channels/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    })
+
+    const result = await authFetch(request)
+
+    expect(result.status).toBe(200)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    const [firstReq] = fetchMock.mock.calls[0]
+    const [secondReq] = fetchMock.mock.calls[1]
+    expect((firstReq as Request).headers.get('Content-Type')).toBe('application/json')
+    expect((secondReq as Request).headers.get('Content-Type')).toBe('application/json')
+    expect((secondReq as Request).headers.get('Authorization')).toBe('Bearer fresh')
+    expect(await (secondReq as Request).clone().text()).toBe(body)
+  })
 })
 ```
+
+This suite drives `authFetch` with both bare string URLs and a real `Request` object carrying a body and
+`Content-Type` header (the last test) — the latter is the shape `openapi-fetch` (Task 10) actually calls
+`authFetch` with for any POST/PUT/PATCH, and is what catches header loss or retry-body corruption that a
+string-URL-only test suite would miss.
 
 - [ ] **Step 2: Run it to verify it fails**
 
@@ -1014,7 +1060,9 @@ export async function authFetch(
   input: RequestInfo | URL,
   init: RequestInit = {},
 ): Promise<Response> {
-  const response = await fetchWithToken(input, init)
+  const base = new Request(input, init)
+
+  const response = await fetchWithToken(base.clone())
   if (response.status !== 401) {
     return response
   }
@@ -1025,18 +1073,27 @@ export async function authFetch(
     return response
   }
 
-  return fetchWithToken(input, init)
+  return fetchWithToken(base.clone())
 }
 
-function fetchWithToken(input: RequestInfo | URL, init: RequestInit): Promise<Response> {
+function fetchWithToken(request: Request): Promise<Response> {
   const token = useAuthStore.getState().accessToken
-  const headers = new Headers(init.headers)
   if (token) {
-    headers.set('Authorization', `Bearer ${token}`)
+    request.headers.set('Authorization', `Bearer ${token}`)
   }
-  return fetch(input, { ...init, headers })
+  return fetch(request)
 }
 ```
+
+`openapi-fetch` (Task 10) calls the injected `fetch` as `fetch(request, requestInitExt)`, where `request`
+is already a real `Request` instance carrying all headers (including `Content-Type` for bodied requests)
+and `requestInitExt` is `{}`. Constructing `new Request(input, init)` once — the same merge Fetch itself
+performs — and then cloning it per attempt is what makes both a bare string URL (`authFetch('/api/...')`,
+as `openapi-fetch` never calls it, but tests and callers may) and a real `Request` object work identically,
+and what allows the same body to be sent on both the initial attempt and the post-refresh retry without
+hitting `TypeError: Cannot construct a Request with a Request object that has already been used`. Mutating
+`request.headers` in place (rather than replacing the header set, e.g. via `new Headers(init.headers)`)
+preserves whatever headers the caller already set on the `Request`/`init`.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -1044,7 +1101,7 @@ function fetchWithToken(input: RequestInfo | URL, init: RequestInit): Promise<Re
 npx vitest run src/api/authFetch.test.ts
 ```
 
-Expected: 4 tests passed.
+Expected: 5 tests passed.
 
 - [ ] **Step 5: Commit**
 
