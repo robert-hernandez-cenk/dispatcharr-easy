@@ -15,7 +15,10 @@ Object.defineProperty(window, 'matchMedia', {
   }),
 })
 
-// Ensure localStorage is available in test environment
+// jsdom itself implements Storage correctly, but this repo's Node runtime (22+) exposes its own
+// experimental global `localStorage`, which Vitest's jsdom-environment global-copying logic treats
+// as already-present and therefore does not override with jsdom's real, working instance. This mock
+// fills that gap with a correct Storage implementation — it is not a jsdom limitation workaround.
 if (!window.localStorage) {
   const store: Record<string, string> = {}
   Object.defineProperty(window, 'localStorage', {
@@ -34,7 +37,9 @@ if (!window.localStorage) {
         })
       },
       key: (index: number) => Object.keys(store)[index] || null,
-      length: Object.keys(store).length,
+      get length() {
+        return Object.keys(store).length
+      },
     },
   })
 }
