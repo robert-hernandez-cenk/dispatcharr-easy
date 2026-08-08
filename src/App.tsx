@@ -1,17 +1,10 @@
-import { useState } from 'react'
+import { Container, Title } from '@mantine/core'
 
 function App() {
-  const [count, setCount] = useState(0)
-
   return (
-    <>
-      <h1>Vite + React</h1>
-      <div>
-        <button type="button" onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-      </div>
-    </>
+    <Container size="sm" py="xl">
+      <Title order={1}>Dispatcharr Easy</Title>
+    </Container>
   )
 }
 
