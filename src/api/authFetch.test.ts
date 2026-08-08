@@ -87,10 +87,16 @@ describe('authFetch', () => {
 
   it('preserves headers and body across a 401 retry when given a real Request', async () => {
     useAuthStore.setState({ accessToken: 'expired', isAuthenticated: true })
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(response(401))
-      .mockResolvedValueOnce(response(200))
+    // A real fetch reads (and thereby consumes) the Request body. If authFetch retried with
+    // the same already-read Request instead of a fresh `.clone()`, the second call below would
+    // throw `TypeError: Body is unusable` instead of silently succeeding — that's what makes
+    // `.clone()` load-bearing and this test an actual regression guard rather than a no-op.
+    const seenBodies: string[] = []
+    let statusCount = 0
+    const fetchMock = vi.fn(async (req: Request) => {
+      seenBodies.push(await req.text())
+      return statusCount++ === 0 ? response(401) : response(200)
+    })
     vi.stubGlobal('fetch', fetchMock)
     vi.mocked(refreshAccessToken).mockImplementation(async () => {
       useAuthStore.setState({ accessToken: 'fresh', isAuthenticated: true })
@@ -119,6 +125,6 @@ describe('authFetch', () => {
     expect((secondReq as Request).headers.get('Authorization')).toBe(
       'Bearer fresh',
     )
-    expect(await (secondReq as Request).clone().text()).toBe(body)
+    expect(seenBodies).toEqual([body, body])
   })
 })

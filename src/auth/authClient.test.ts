@@ -64,6 +64,18 @@ describe('authClient', () => {
     expect(useAuthStore.getState().accessToken).toBeNull()
   })
 
+  it('login returns false when the network request fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockRejectedValue(new TypeError('Failed to fetch')),
+    )
+
+    const result = await login('rchernan', 'correct-password')
+
+    expect(result).toBe(false)
+    expect(useAuthStore.getState().accessToken).toBeNull()
+  })
+
   it('refreshAccessToken returns false when there is no stored refresh token', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
@@ -91,6 +103,18 @@ describe('authClient', () => {
         body: JSON.stringify({ refresh: 'r1' }),
       }),
     )
+  })
+
+  it('refreshAccessToken returns false when the network request fails', async () => {
+    localStorage.setItem(REFRESH_TOKEN_KEY, 'r1')
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockRejectedValue(new TypeError('Failed to fetch')),
+    )
+
+    const result = await refreshAccessToken()
+
+    expect(result).toBe(false)
   })
 
   it('refreshAccessToken dedups concurrent calls into a single request', async () => {

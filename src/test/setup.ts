@@ -40,7 +40,10 @@ if (!window.localStorage) {
           delete store[key]
         })
       },
-      key: (index: number) => Object.keys(store)[index] || null,
+      key: (index: number) => {
+        const k = Object.keys(store)[index]
+        return k === undefined ? null : k
+      },
       get length() {
         return Object.keys(store).length
       },
