@@ -14,3 +14,27 @@ Object.defineProperty(window, 'matchMedia', {
     dispatchEvent: () => true,
   }),
 })
+
+// Ensure localStorage is available in test environment
+if (!window.localStorage) {
+  const store: Record<string, string> = {}
+  Object.defineProperty(window, 'localStorage', {
+    writable: true,
+    value: {
+      getItem: (key: string) => store[key] || null,
+      setItem: (key: string, value: string) => {
+        store[key] = value.toString()
+      },
+      removeItem: (key: string) => {
+        delete store[key]
+      },
+      clear: () => {
+        Object.keys(store).forEach((key) => {
+          delete store[key]
+        })
+      },
+      key: (index: number) => Object.keys(store)[index] || null,
+      length: Object.keys(store).length,
+    },
+  })
+}
