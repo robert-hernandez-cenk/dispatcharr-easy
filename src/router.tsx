@@ -1,4 +1,4 @@
-import { Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes } from 'react-router-dom'
 import { AuthGate } from './auth/AuthGate'
 import { AppLayout } from './components/AppLayout'
 import { LoginPage } from './pages/LoginPage'
@@ -18,6 +18,7 @@ export function AppRoutes() {
           </AuthGate>
         }
       />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
 }

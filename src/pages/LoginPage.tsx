@@ -50,10 +50,15 @@ export function LoginPage() {
           Log in
         </Title>
         <form onSubmit={form.onSubmit(handleSubmit)}>
-          <TextInput label="Username" {...form.getInputProps('username')} />
+          <TextInput
+            label="Username"
+            autoComplete="username"
+            {...form.getInputProps('username')}
+          />
           <PasswordInput
             label="Password"
             mt="sm"
+            autoComplete="current-password"
             {...form.getInputProps('password')}
           />
           {error && (
