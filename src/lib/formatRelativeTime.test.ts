@@ -13,7 +13,9 @@ describe('formatRelativeTime', () => {
   })
 
   it('formats a time a few minutes ago', () => {
-    expect(formatRelativeTime('2026-08-08T19:55:00Z', now)).toBe('5 minutes ago')
+    expect(formatRelativeTime('2026-08-08T19:55:00Z', now)).toBe(
+      '5 minutes ago',
+    )
   })
 
   it('formats a time a few hours ago', () => {

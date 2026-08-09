@@ -1,7 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
 import { MantineProvider } from '@mantine/core'
-import { SourceHealthCard, type SourceHealthCardProps } from './SourceHealthCard'
+import {
+  SourceHealthCard,
+  type SourceHealthCardProps,
+} from './SourceHealthCard'
 
 function renderCard(props: Partial<SourceHealthCardProps> = {}) {
   return render(

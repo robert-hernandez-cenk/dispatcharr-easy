@@ -18,7 +18,12 @@ const STATUS_COLORS: Record<string, string> = {
   disabled: 'gray',
 }
 
-export function SourceHealthCard({ name, status, lastMessage, updatedAt }: SourceHealthCardProps) {
+export function SourceHealthCard({
+  name,
+  status,
+  lastMessage,
+  updatedAt,
+}: SourceHealthCardProps) {
   return (
     <Paper withBorder p="md" radius="md">
       <Group justify="space-between">

@@ -1,4 +1,7 @@
-export function formatRelativeTime(isoDate: string | null, now: Date = new Date()): string {
+export function formatRelativeTime(
+  isoDate: string | null,
+  now: Date = new Date(),
+): string {
   if (!isoDate) {
     return 'never'
   }
