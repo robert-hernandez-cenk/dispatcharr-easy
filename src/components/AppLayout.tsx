@@ -27,11 +27,16 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   useEffect(() => {
     let cancelled = false
-    apiClient.GET('/api/accounts/users/me/').then(({ data }) => {
-      if (!cancelled && data) {
-        setUsername(data.username)
-      }
-    })
+    apiClient
+      .GET('/api/accounts/users/me/')
+      .then(({ data }) => {
+        if (!cancelled && data) {
+          setUsername(data.username)
+        }
+      })
+      .catch(() => {
+        // Network failure — username stays null, menu shows the placeholder.
+      })
     return () => {
       cancelled = true
     }

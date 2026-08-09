@@ -84,4 +84,25 @@ describe('DashboardPage', () => {
     expect(screen.getByText('Failed to load EPG sources.')).toBeInTheDocument()
     expect(screen.getByText('No M3U accounts configured.')).toBeInTheDocument()
   })
+
+  it('tolerates a rejected request without blanking the page', async () => {
+    vi.mocked(apiClient.GET).mockImplementation(async (path: string) => {
+      if (path === '/api/channels/channels/')
+        throw new TypeError('Failed to fetch')
+      if (path === '/api/channels/streams/')
+        return { data: { count: 36389 }, error: undefined } as never
+      if (path === '/api/m3u/accounts/')
+        return { data: [], error: undefined } as never
+      if (path === '/api/epg/sources/')
+        return { data: [], error: undefined } as never
+      throw new Error(`unexpected path ${path}`)
+    })
+
+    renderPage()
+
+    expect(await screen.findByText('36389')).toBeInTheDocument()
+    expect(screen.getByText('—')).toBeInTheDocument()
+    expect(screen.getByText('No M3U accounts configured.')).toBeInTheDocument()
+    expect(screen.getByText('No EPG sources configured.')).toBeInTheDocument()
+  })
 })
