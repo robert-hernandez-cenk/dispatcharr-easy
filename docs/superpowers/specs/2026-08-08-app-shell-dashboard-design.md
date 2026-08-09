@@ -48,7 +48,7 @@ Router (`react-router-dom` v7): two routes for now — `/` (Dashboard, inside `A
 ### Data flow & error handling
 
 - `DashboardPage` issues its requests in parallel, tracks one loading state, and is **partial-failure tolerant**: if one request fails (e.g. EPG sources) the rest still render, with a Mantine `Alert` in place of the failed section rather than the whole page failing.
-- Other API errors (e.g. login) surface via Mantine notifications, per the parent Phase 0 spec's error-handling section.
+- Errors in this plan are all scoped/inline (see Error handling below), not global toasts — nothing here needs a page-wide notification system yet. The parent Phase 0 spec mentions Mantine notifications for API errors generally; this plan doesn't introduce `@mantine/notifications` since it has no concrete use case yet (YAGNI) — a later plan adds it when a feature actually needs a global toast (e.g. a bulk action's result).
 
 ### Mobile
 
