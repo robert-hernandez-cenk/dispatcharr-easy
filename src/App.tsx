@@ -1,10 +1,11 @@
-import { Container, Title } from '@mantine/core'
+import { BrowserRouter } from 'react-router-dom'
+import { AppRoutes } from './router'
 
 function App() {
   return (
-    <Container size="sm" py="xl">
-      <Title order={1}>Dispatcharr Easy</Title>
-    </Container>
+    <BrowserRouter>
+      <AppRoutes />
+    </BrowserRouter>
   )
 }
 

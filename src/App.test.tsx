@@ -1,21 +1,24 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MantineProvider } from '@mantine/core'
+import { useAuthStore } from './auth/authStore'
 import App from './App'
 
-function renderApp() {
-  return render(
-    <MantineProvider defaultColorScheme="auto">
-      <App />
-    </MantineProvider>,
-  )
-}
-
 describe('App', () => {
-  it('renders the app title', () => {
-    renderApp()
+  beforeEach(() => {
+    localStorage.clear()
+    useAuthStore.setState({ accessToken: null, isAuthenticated: false })
+  })
+
+  it('redirects an unauthenticated visitor to the login page', async () => {
+    render(
+      <MantineProvider>
+        <App />
+      </MantineProvider>,
+    )
+
     expect(
-      screen.getByRole('heading', { name: 'Dispatcharr Easy' }),
+      await screen.findByRole('heading', { name: 'Log in' }),
     ).toBeInTheDocument()
   })
 })
