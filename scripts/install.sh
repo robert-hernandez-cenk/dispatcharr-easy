@@ -107,8 +107,66 @@ do_dry_run() {
 }
 
 do_apply() {
-  log "[ERROR] --apply is not yet implemented."
-  exit 1
+  check_version
+
+  if [[ ! -d "${APP_DIR}/frontend/dist" ]]; then
+    log "[ERROR] ${APP_DIR}/frontend/dist does not exist — is APP_DIR correct?"
+    exit 1
+  fi
+
+  local tarball
+  local downloaded=0
+  if [[ -n "$DIST_FILE" ]]; then
+    if [[ ! -f "$DIST_FILE" ]]; then
+      log "[ERROR] --dist-file $DIST_FILE not found."
+      exit 1
+    fi
+    tarball="$DIST_FILE"
+  else
+    tarball="$(mktemp)"
+    downloaded=1
+    log "Downloading $(release_url) ..."
+    if ! curl -fsSL -o "$tarball" "$(release_url)"; then
+      log "[ERROR] Download failed. Nothing has been changed."
+      rm -f "$tarball"
+      exit 1
+    fi
+  fi
+
+  local backup
+  backup="$(backup_path)"
+  log "Backing up ${APP_DIR}/frontend/dist -> $backup"
+  mv "${APP_DIR}/frontend/dist" "$backup"
+
+  local extract_dir
+  extract_dir="$(mktemp -d)"
+  if ! tar -xzf "$tarball" -C "$extract_dir"; then
+    log "[ERROR] Failed to extract $tarball. Restoring backup."
+    mv "$backup" "${APP_DIR}/frontend/dist"
+    rm -rf "$extract_dir"
+    [[ "$downloaded" -eq 1 ]] && rm -f "$tarball"
+    exit 1
+  fi
+
+  mkdir -p "${APP_DIR}/frontend/dist"
+  mv "$extract_dir"/* "${APP_DIR}/frontend/dist"/
+  # rm -rf, not rmdir: robust even if a future build ever emits a hidden
+  # dotfile that the mv glob above wouldn't match (rmdir would then fail
+  # on a non-empty directory and, under set -e, wrongly report the whole
+  # --apply as failed even though the real work already succeeded).
+  rm -rf "$extract_dir"
+  [[ "$downloaded" -eq 1 ]] && rm -f "$tarball"
+
+  log "Running collectstatic..."
+  if ! (cd "$APP_DIR" && env/bin/python manage.py collectstatic --noinput); then
+    log "[ERROR] collectstatic failed. Restoring backup."
+    rm -rf "${APP_DIR}/frontend/dist"
+    mv "$backup" "${APP_DIR}/frontend/dist"
+    exit 1
+  fi
+
+  log "Done. Previous version backed up at: $backup"
+  log "Run with --revert to undo."
 }
 
 do_revert() {
