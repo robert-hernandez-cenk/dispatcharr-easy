@@ -5,6 +5,10 @@
 # (see .github/workflows/release.yml), so this Dockerfile only needs to copy
 # an already-built dist/ into place.
 
+# Default mirrors COMPATIBLE_DISPATCHARR_VERSION's content (Docker can't read
+# a file into an ARG default) — bump both together when that file changes.
+# CI (.github/workflows/release.yml) always overrides this explicitly via
+# --build-arg, so this default only matters for a plain local `docker build .`.
 ARG DISPATCHARR_VERSION=0.28.2
 FROM ghcr.io/dispatcharr/dispatcharr:${DISPATCHARR_VERSION}
 
