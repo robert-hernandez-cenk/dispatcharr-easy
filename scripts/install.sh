@@ -5,9 +5,7 @@ REPO="robert-hernandez-cenk/dispatcharr-easy"
 # Substituted with the real value by .github/workflows/release.yml before
 # this script is published as a release asset. Stays literal in this repo's
 # own working copy — do not rely on it being a real version number here.
-# Overridable via env var so tests can exercise both matching and
-# mismatched versions without needing the release substitution to have run.
-COMPATIBLE_VERSION="${COMPATIBLE_VERSION:-__DISPATCHARR_EASY_COMPATIBLE_VERSION__}"
+COMPATIBLE_VERSION="__DISPATCHARR_EASY_COMPATIBLE_VERSION__"
 
 APP_DIR="${APP_DIR:-/opt/dispatcharr}"
 MODE="dry-run"

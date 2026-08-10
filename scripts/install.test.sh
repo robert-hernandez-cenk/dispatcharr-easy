@@ -100,11 +100,13 @@ setup_fake_dist_tarball() {
 echo "=== dry-run tests ==="
 
 # Dry run with matching version makes no changes and exits 0.
-# COMPATIBLE_VERSION is set explicitly here rather than relying on the
-# release-time placeholder substitution (see install.sh's default).
+# The fake installed version is set to install.sh's own literal, un-substituted
+# placeholder (this repo's working copy never runs the release-time
+# substitution), so the version check matches without needing to override
+# anything in install.sh itself.
 TMP1="$(mktemp -d)"
-setup_fake_app_dir "$TMP1/app" "0.28.2"
-OUTPUT=$(APP_DIR="$TMP1/app" COMPATIBLE_VERSION="0.28.2" bash "$INSTALL_SH" 2>&1)
+setup_fake_app_dir "$TMP1/app" "__DISPATCHARR_EASY_COMPATIBLE_VERSION__"
+OUTPUT=$(APP_DIR="$TMP1/app" bash "$INSTALL_SH" 2>&1)
 EXIT=$?
 assert_exit_zero "$EXIT" "dry-run exits 0 on matching version"
 assert_eq "old-asset" "$(cat "$TMP1/app/frontend/dist/assets/old.js")" "dry-run does not modify frontend/dist"
