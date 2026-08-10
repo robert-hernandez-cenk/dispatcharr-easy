@@ -133,6 +133,63 @@ OUTPUT=$(bash "$INSTALL_SH" --nonsense 2>&1)
 EXIT=$?
 assert_exit_nonzero "$EXIT" "unknown flag exits nonzero"
 
+echo "=== --apply tests ==="
+
+# --apply with --dist-file replaces dist and backs up the old one.
+# Matching version, per the pattern established above: use install.sh's own
+# literal, un-substituted placeholder rather than a real version number.
+TMP3="$(mktemp -d)"
+setup_fake_app_dir "$TMP3/app" "__DISPATCHARR_EASY_COMPATIBLE_VERSION__"
+setup_fake_dist_tarball "$TMP3/dist.tar.gz"
+OUTPUT=$(APP_DIR="$TMP3/app" bash "$INSTALL_SH" --apply --dist-file "$TMP3/dist.tar.gz" 2>&1)
+EXIT=$?
+assert_exit_zero "$EXIT" "--apply exits 0"
+assert_eq "new-asset" "$(cat "$TMP3/app/frontend/dist/assets/new.js" 2>/dev/null)" "--apply installs the new dist"
+# shellcheck disable=SC2012 # backup_path()'s own timestamp format never
+# contains glob-breaking characters, so `ls` here is safe; `find` would
+# also be fine but this keeps a single result deterministically first.
+BACKUP=$(ls -1d "$TMP3/app/frontend/dist.backup."* 2>/dev/null | head -n1 || true)
+if [[ -n "$BACKUP" ]]; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL: --apply creates a timestamped backup"
+fi
+assert_eq "old-asset" "$(cat "${BACKUP}/assets/old.js" 2>/dev/null)" "backup contains the old dist"
+assert_eq "collectstatic ran" "$(cat "$TMP3/app/collectstatic.log" 2>/dev/null)" "--apply runs collectstatic"
+rm -rf "$TMP3"
+
+# --apply aborts on version mismatch without --force, makes no changes.
+TMP4="$(mktemp -d)"
+setup_fake_app_dir "$TMP4/app" "0.27.0"
+setup_fake_dist_tarball "$TMP4/dist.tar.gz"
+OUTPUT=$(APP_DIR="$TMP4/app" bash "$INSTALL_SH" --apply --dist-file "$TMP4/dist.tar.gz" 2>&1)
+EXIT=$?
+assert_exit_nonzero "$EXIT" "--apply aborts on version mismatch"
+assert_eq "old-asset" "$(cat "$TMP4/app/frontend/dist/assets/old.js")" "aborted --apply does not modify frontend/dist"
+rm -rf "$TMP4"
+
+# --apply --force proceeds despite version mismatch.
+TMP5="$(mktemp -d)"
+setup_fake_app_dir "$TMP5/app" "0.27.0"
+setup_fake_dist_tarball "$TMP5/dist.tar.gz"
+OUTPUT=$(APP_DIR="$TMP5/app" bash "$INSTALL_SH" --apply --force --dist-file "$TMP5/dist.tar.gz" 2>&1)
+EXIT=$?
+assert_exit_zero "$EXIT" "--apply --force exits 0 despite version mismatch"
+assert_eq "new-asset" "$(cat "$TMP5/app/frontend/dist/assets/new.js" 2>/dev/null)" "--apply --force installs the new dist"
+rm -rf "$TMP5"
+
+# --apply with a nonexistent --dist-file aborts cleanly, makes no changes.
+# Matching version, so this exercises the missing-file check itself rather
+# than incidentally aborting on a version mismatch first.
+TMP6="$(mktemp -d)"
+setup_fake_app_dir "$TMP6/app" "__DISPATCHARR_EASY_COMPATIBLE_VERSION__"
+OUTPUT=$(APP_DIR="$TMP6/app" bash "$INSTALL_SH" --apply --dist-file "$TMP6/does-not-exist.tar.gz" 2>&1)
+EXIT=$?
+assert_exit_nonzero "$EXIT" "--apply aborts when --dist-file does not exist"
+assert_eq "old-asset" "$(cat "$TMP6/app/frontend/dist/assets/old.js")" "--apply with missing --dist-file does not modify frontend/dist"
+rm -rf "$TMP6"
+
 echo ""
 echo "Passed: $PASS, Failed: $FAIL"
 [[ "$FAIL" -eq 0 ]]
