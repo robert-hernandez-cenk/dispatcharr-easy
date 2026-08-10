@@ -170,8 +170,31 @@ do_apply() {
 }
 
 do_revert() {
-  log "[ERROR] --revert is not yet implemented."
-  exit 1
+  local latest
+  # shellcheck disable=SC2012 # backup_path()'s own timestamp format never
+  # contains glob-breaking characters, so `ls` here is safe; `find` would
+  # also be fine but this keeps a single result deterministically first.
+  latest="$(ls -1dt "${APP_DIR}"/frontend/dist.backup.* 2>/dev/null | head -n1 || true)"
+  if [[ -z "$latest" ]]; then
+    log "[ERROR] No backup found in ${APP_DIR}/frontend/. Nothing to revert."
+    exit 1
+  fi
+
+  local reverted
+  reverted="${APP_DIR}/frontend/dist.reverted.$(date -u +%Y%m%dT%H%M%SZ)"
+  log "Moving current ${APP_DIR}/frontend/dist -> $reverted"
+  mv "${APP_DIR}/frontend/dist" "$reverted"
+  log "Restoring $latest -> ${APP_DIR}/frontend/dist"
+  mv "$latest" "${APP_DIR}/frontend/dist"
+
+  log "Running collectstatic..."
+  if ! (cd "$APP_DIR" && env/bin/python manage.py collectstatic --noinput); then
+    log "[ERROR] collectstatic failed after revert. Your site may be in an inconsistent state."
+    log "        The reverted-from version is saved at: $reverted"
+    exit 1
+  fi
+
+  log "Done. Reverted to: $latest"
 }
 
 main() {

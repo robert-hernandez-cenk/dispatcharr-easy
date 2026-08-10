@@ -190,6 +190,53 @@ assert_exit_nonzero "$EXIT" "--apply aborts when --dist-file does not exist"
 assert_eq "old-asset" "$(cat "$TMP6/app/frontend/dist/assets/old.js")" "--apply with missing --dist-file does not modify frontend/dist"
 rm -rf "$TMP6"
 
+echo "=== --revert tests ==="
+
+# --revert restores the most recent backup.
+# Matching version, per the pattern established above (TMP1/TMP3/TMP6): use
+# install.sh's own literal, un-substituted placeholder rather than a real
+# version number, so --apply actually succeeds and leaves a real backup for
+# --revert to act on (a mismatched version here would make --apply abort
+# silently, and this test would then "pass" without genuinely exercising
+# revert's restore behavior).
+TMP7="$(mktemp -d)"
+setup_fake_app_dir "$TMP7/app" "__DISPATCHARR_EASY_COMPATIBLE_VERSION__"
+setup_fake_dist_tarball "$TMP7/dist.tar.gz"
+APP_DIR="$TMP7/app" bash "$INSTALL_SH" --apply --dist-file "$TMP7/dist.tar.gz" >/dev/null 2>&1
+OUTPUT=$(APP_DIR="$TMP7/app" bash "$INSTALL_SH" --revert 2>&1)
+EXIT=$?
+assert_exit_zero "$EXIT" "--revert exits 0"
+assert_eq "old-asset" "$(cat "$TMP7/app/frontend/dist/assets/old.js" 2>/dev/null)" "--revert restores the pre-apply dist"
+rm -rf "$TMP7"
+
+# --revert with no backup aborts cleanly.
+TMP8="$(mktemp -d)"
+setup_fake_app_dir "$TMP8/app" "0.28.2"
+OUTPUT=$(APP_DIR="$TMP8/app" bash "$INSTALL_SH" --revert 2>&1)
+EXIT=$?
+assert_exit_nonzero "$EXIT" "--revert aborts when there is no backup"
+rm -rf "$TMP8"
+
+# --revert preserves the reverted-from dist rather than deleting it.
+# Matching version, same reasoning as TMP7 above.
+TMP9="$(mktemp -d)"
+setup_fake_app_dir "$TMP9/app" "__DISPATCHARR_EASY_COMPATIBLE_VERSION__"
+setup_fake_dist_tarball "$TMP9/dist.tar.gz"
+APP_DIR="$TMP9/app" bash "$INSTALL_SH" --apply --dist-file "$TMP9/dist.tar.gz" >/dev/null 2>&1
+APP_DIR="$TMP9/app" bash "$INSTALL_SH" --revert >/dev/null 2>&1
+# shellcheck disable=SC2012 # do_revert's own timestamp format never
+# contains glob-breaking characters, so `ls` here is safe; `find` would
+# also be fine but this keeps a single result deterministically first.
+REVERTED=$(ls -1d "$TMP9/app/frontend/dist.reverted."* 2>/dev/null | head -n1 || true)
+if [[ -n "$REVERTED" ]]; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL: --revert preserves the reverted-from dist under dist.reverted.*"
+fi
+assert_eq "new-asset" "$(cat "${REVERTED}/assets/new.js" 2>/dev/null)" "the preserved reverted-from dist still contains the applied content"
+rm -rf "$TMP9"
+
 echo ""
 echo "Passed: $PASS, Failed: $FAIL"
 [[ "$FAIL" -eq 0 ]]
