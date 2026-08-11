@@ -1,0 +1,320 @@
+diff -ruN -x __pycache__ -x '*.pyc' a/apps/channels/api_views.py b/apps/channels/api_views.py
+--- a/apps/channels/api_views.py	2026-08-11 09:22:54.546099200 +0000
++++ b/apps/channels/api_views.py	2026-08-11 09:24:52.962106239 +0000
+@@ -3137,29 +3137,41 @@
+             memberships_to_update = []
+             memberships_to_create = []
+ 
++            # Per-profile override columns. Present in an entry -> set (null
++            # clears); omitted -> leave unchanged.
++            override_fields = ("name", "channel_number", "channel_group_id", "logo_id")
++
++            def _apply_overrides(membership, entry):
++                for field in override_fields:
++                    if field in entry:
++                        setattr(membership, field, entry[field])
++
+             for entry in updates:
+                 channel_id = entry["channel_id"]
+                 enabled_status = entry["enabled"]
+ 
+                 if channel_id in membership_dict:
+                     # Update existing membership
+-                    membership_dict[channel_id].enabled = enabled_status
+-                    memberships_to_update.append(membership_dict[channel_id])
++                    membership = membership_dict[channel_id]
++                    membership.enabled = enabled_status
++                    _apply_overrides(membership, entry)
++                    memberships_to_update.append(membership)
+                 else:
+                     # Create new membership
+-                    memberships_to_create.append(
+-                        ChannelProfileMembership(
+-                            channel_profile=channel_profile,
+-                            channel_id=channel_id,
+-                            enabled=enabled_status,
+-                        )
++                    membership = ChannelProfileMembership(
++                        channel_profile=channel_profile,
++                        channel_id=channel_id,
++                        enabled=enabled_status,
+                     )
++                    _apply_overrides(membership, entry)
++                    memberships_to_create.append(membership)
+ 
+             # Perform bulk operations
+             with transaction.atomic():
+                 if memberships_to_update:
+                     ChannelProfileMembership.objects.bulk_update(
+-                        memberships_to_update, ["enabled"]
++                        memberships_to_update,
++                        ["enabled", *override_fields],
+                     )
+                 if memberships_to_create:
+                     ChannelProfileMembership.objects.bulk_create(memberships_to_create)
+diff -ruN -x __pycache__ -x '*.pyc' a/apps/channels/managers.py b/apps/channels/managers.py
+--- a/apps/channels/managers.py	2026-08-11 09:22:54.541554465 +0000
++++ b/apps/channels/managers.py	2026-08-11 09:23:37.818101772 +0000
+@@ -10,6 +10,7 @@
+ resolutions across the codebase).
+ """
+ 
++from django.db.models import FilteredRelation, Q
+ from django.db.models.functions import Coalesce
+ 
+ 
+@@ -24,27 +25,60 @@
+     "stream_profile_id",
+ )
+ 
++# Fields that can additionally be overridden per ChannelProfile membership.
++# These take precedence over the channel-level ChannelOverride, which in turn
++# takes precedence over the channel's own (provider) value. Kept intentionally
++# narrow: a profile is an output "list", so it only re-numbers, renames,
++# re-categorizes and re-logos channels — EPG/stream-profile stay channel-global.
++PROFILE_OVERRIDABLE_FIELDS = (
++    "name",
++    "channel_number",
++    "channel_group_id",
++    "logo_id",
++)
+ 
+-def with_effective_values(queryset, select_related_fks=False):
++
++def with_effective_values(queryset, profile=None, select_related_fks=False):
+     """
+     Annotate the channels queryset with `effective_*` columns that resolve to
+     the override value when set, otherwise fall back to the channel's own
+     value. Always eagerly loads the override one-to-one to avoid N+1 when the
+     caller reads annotated attributes and then the related override.
+ 
++    When `profile` (a ChannelProfile) is given, that profile's membership
++    overrides win over the channel-level override for
++    PROFILE_OVERRIDABLE_FIELDS, so the same channel can appear with a
++    different number/name/group/logo in each profile's output. The membership
++    row is joined via FilteredRelation, which collapses the reverse
++    (multi-valued) relation to the single row for this profile — safe because
++    ChannelProfileMembership is unique per (channel_profile, channel).
++
+     Pass `select_related_fks=True` when the output path will access FK objects
+     through the `effective_*_obj` Channel properties; this pulls the override's
+     logo, channel_group, epg_data, and stream_profile in the same query so
+     those accessors do not trigger per-row lookups.
+     """
+-    annotations = {
+-        f"effective_{field}": Coalesce(
+-            f"override__{field}",
+-            field,
++    qs = queryset
++    pm_prefix = None
++    if profile is not None:
++        qs = qs.annotate(
++            _pm=FilteredRelation(
++                "channelprofilemembership",
++                condition=Q(channelprofilemembership__channel_profile=profile),
++            )
+         )
+-        for field in OVERRIDABLE_FIELDS
+-    }
+-    qs = queryset.select_related("override").annotate(**annotations)
++        pm_prefix = "_pm__"
++
++    annotations = {}
++    for field in OVERRIDABLE_FIELDS:
++        sources = []
++        if pm_prefix and field in PROFILE_OVERRIDABLE_FIELDS:
++            sources.append(f"{pm_prefix}{field}")
++        sources.append(f"override__{field}")
++        sources.append(field)
++        annotations[f"effective_{field}"] = Coalesce(*sources)
++
++    qs = qs.select_related("override").annotate(**annotations)
+     if select_related_fks:
+         qs = qs.select_related(
+             "override__logo",
+diff -ruN -x __pycache__ -x '*.pyc' a/apps/channels/migrations/9999_channelprofilemembership_overrides.py b/apps/channels/migrations/9999_channelprofilemembership_overrides.py
+--- a/apps/channels/migrations/9999_channelprofilemembership_overrides.py	1970-01-01 00:00:00.000000000 +0000
++++ b/apps/channels/migrations/9999_channelprofilemembership_overrides.py	2026-08-11 09:25:26.886108255 +0000
+@@ -0,0 +1,53 @@
++"""Per-profile channel overrides on ChannelProfileMembership.
++
++NOTE: rename this file and set `dependencies` to your fork's latest
++`channels` migration (or simply delete it and run
++`python manage.py makemigrations channels` — the model change is enough for
++Django to generate an equivalent migration).
++"""
++
++import django.db.models.deletion
++from django.db import migrations, models
++
++
++class Migration(migrations.Migration):
++
++    dependencies = [
++        # TODO: point this at the current latest channels migration in your fork.
++        ("channels", "REPLACE_WITH_LATEST_CHANNELS_MIGRATION"),
++    ]
++
++    operations = [
++        migrations.AddField(
++            model_name="channelprofilemembership",
++            name="name",
++            field=models.CharField(blank=True, max_length=512, null=True),
++        ),
++        migrations.AddField(
++            model_name="channelprofilemembership",
++            name="channel_number",
++            field=models.FloatField(blank=True, null=True),
++        ),
++        migrations.AddField(
++            model_name="channelprofilemembership",
++            name="channel_group",
++            field=models.ForeignKey(
++                blank=True,
++                null=True,
++                on_delete=django.db.models.deletion.SET_NULL,
++                related_name="+",
++                to="channels.channelgroup",
++            ),
++        ),
++        migrations.AddField(
++            model_name="channelprofilemembership",
++            name="logo",
++            field=models.ForeignKey(
++                blank=True,
++                null=True,
++                on_delete=django.db.models.deletion.SET_NULL,
++                related_name="+",
++                to="channels.logo",
++            ),
++        ),
++    ]
+diff -ruN -x __pycache__ -x '*.pyc' a/apps/channels/models.py b/apps/channels/models.py
+--- a/apps/channels/models.py	2026-08-11 09:22:54.539288455 +0000
++++ b/apps/channels/models.py	2026-08-11 09:24:26.586104671 +0000
+@@ -292,7 +292,7 @@
+     def active(self):
+         return self.all()
+ 
+-    def with_effective_values(self, select_related_fks=False):
++    def with_effective_values(self, profile=None, select_related_fks=False):
+         """
+         Chainable shortcut for the override-aware queryset annotations,
+         delegating to the canonical helper in ``apps.channels.managers``
+@@ -303,7 +303,9 @@
+         from apps.channels.managers import with_effective_values
+ 
+         return with_effective_values(
+-            self.get_queryset(), select_related_fks=select_related_fks
++            self.get_queryset(),
++            profile=profile,
++            select_related_fks=select_related_fks,
+         )
+ 
+ 
+@@ -439,7 +441,31 @@
+             return None
+ 
+     def _resolve_effective_fk(self, field_name):
+-        """Pick the override's FK object if set, otherwise the channel's own."""
++        """
++        Pick the effective FK object with profile > channel-override > channel
++        precedence.
++
++        When the queryset came through ``with_effective_values(profile=...)``
++        the instance carries an ``effective_<field>_id`` annotation that already
++        encodes that precedence, so we resolve straight to it (loading from the
++        channel's own FK or its override when the id matches one of those
++        already-selected objects, else a single lookup for a profile-remapped
++        id). Without the annotation (admin / non-output contexts) we fall back
++        to the original channel-override-only behavior.
++        """
++        effective_id = self.__dict__.get(f"effective_{field_name}_id")
++        if effective_id is not None:
++            if getattr(self, f"{field_name}_id", None) == effective_id:
++                return getattr(self, field_name)
++            override = self._resolved_override()
++            if (
++                override is not None
++                and getattr(override, f"{field_name}_id", None) == effective_id
++            ):
++                return getattr(override, field_name)
++            related_model = type(self)._meta.get_field(field_name).related_model
++            return related_model.objects.filter(pk=effective_id).first()
++
+         override = self._resolved_override()
+         if override is not None:
+             override_val = getattr(override, field_name, None)
+@@ -1082,6 +1108,29 @@
+         default=True
+     )  # Track if the channel is enabled for this group
+ 
++    # Per-profile overrides. Each is nullable; NULL means "inherit" and the
++    # channel's effective value (channel-level override, else provider value)
++    # is used. When set, these win over ChannelOverride for this profile's
++    # output only — see apps.channels.managers.PROFILE_OVERRIDABLE_FIELDS and
++    # with_effective_values(profile=...). This is what lets one channel appear
++    # with a different number/name/group/logo in each profile ("list").
++    name = models.CharField(max_length=512, null=True, blank=True)
++    channel_number = models.FloatField(null=True, blank=True)
++    channel_group = models.ForeignKey(
++        ChannelGroup,
++        on_delete=models.SET_NULL,
++        null=True,
++        blank=True,
++        related_name="+",
++    )
++    logo = models.ForeignKey(
++        "Logo",
++        on_delete=models.SET_NULL,
++        null=True,
++        blank=True,
++        related_name="+",
++    )
++
+     class Meta:
+         unique_together = ("channel_profile", "channel")
+ 
+diff -ruN -x __pycache__ -x '*.pyc' a/apps/channels/serializers.py b/apps/channels/serializers.py
+--- a/apps/channels/serializers.py	2026-08-11 09:22:54.543690383 +0000
++++ b/apps/channels/serializers.py	2026-08-11 09:24:33.562105086 +0000
+@@ -298,6 +298,15 @@
+ class ChanneProfilelMembershipUpdateSerializer(serializers.Serializer):
+     channel_id = serializers.IntegerField()  # Ensure channel_id is an integer
+     enabled = serializers.BooleanField()
++    # Optional per-profile overrides. Omit a key to leave it unchanged; send
++    # null to clear it (revert to the channel's effective value).
++    PROFILE_OVERRIDE_FIELDS = ("name", "channel_number", "channel_group_id", "logo_id")
++    name = serializers.CharField(
++        required=False, allow_null=True, allow_blank=True, max_length=512
++    )
++    channel_number = serializers.FloatField(required=False, allow_null=True)
++    channel_group_id = serializers.IntegerField(required=False, allow_null=True)
++    logo_id = serializers.IntegerField(required=False, allow_null=True)
+ 
+ 
+ class BulkChannelProfileMembershipSerializer(serializers.Serializer):
+diff -ruN -x __pycache__ -x '*.pyc' a/apps/output/views.py b/apps/output/views.py
+--- a/apps/output/views.py	2026-08-11 09:22:54.548573048 +0000
++++ b/apps/output/views.py	2026-08-11 09:25:10.206107264 +0000
+@@ -136,6 +136,11 @@
+         response["Content-Disposition"] = 'attachment; filename="channels.m3u"'
+         return response
+ 
++    # Resolved below when a single named profile drives this output; stays None
++    # for user-based requests that may span several profiles (no per-profile
++    # override then — the channel-level effective values are used).
++    channel_profile = None
++
+     if user is not None:
+         if user.user_level < 10:
+             user_profile_count = user.channel_profiles.count()
+@@ -181,7 +186,7 @@
+     # is the consumer-facing hide guarantee.
+     from apps.channels.managers import with_effective_values
+     channels = (
+-        with_effective_values(base_qs, select_related_fks=True)
++        with_effective_values(base_qs, profile=channel_profile, select_related_fks=True)
+         .exclude(hidden_from_output=True)
+         .order_by("effective_channel_number")
+     )
