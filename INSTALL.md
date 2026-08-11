@@ -71,3 +71,25 @@ If `APP_DIR` isn't `/opt/dispatcharr`, set it:
 ```bash
 APP_DIR=/srv/dispatcharr sudo -E ./install.sh
 ```
+
+### Offline / air-gapped installs
+
+If the host running this script has no internet access, download
+`dist.tar.gz` from the release page on a machine that does, copy it over,
+and point `--apply` at it directly instead of letting the script download
+it:
+
+```bash
+./install.sh --apply --dist-file /path/to/dist.tar.gz
+```
+
+### Forcing an install on an unverified Dispatcharr version
+
+If your installed Dispatcharr version doesn't match the version this
+release was verified against, the script aborts by default. Pass
+`--force` to proceed anyway (it isn't guaranteed to work, but is often
+fine for nearby versions):
+
+```bash
+sudo ./install.sh --apply --force
+```
