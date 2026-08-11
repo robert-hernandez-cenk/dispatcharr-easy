@@ -1,4 +1,13 @@
+import { afterEach } from 'vitest'
+import { cleanup } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
+
+// RTL doesn't auto-register cleanup unless `test.globals: true` is set (it isn't, in this
+// project's vite.config.ts) — without this, each test file must remember to unmount its own
+// trees, and a forgotten one leaks DOM nodes into the next test in the same file.
+afterEach(() => {
+  cleanup()
+})
 
 // Mock window.matchMedia - jsdom doesn't implement this API natively, and it's added
 // preemptively per Mantine's documented jsdom test-setup guidance. Mantine's own
