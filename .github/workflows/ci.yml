@@ -19,3 +19,7 @@ jobs:
       - run: npm run format:check
       - run: npm run test
       - run: npm run build
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - run: shellcheck scripts/install.sh scripts/install.test.sh
+      - run: bash scripts/install.test.sh

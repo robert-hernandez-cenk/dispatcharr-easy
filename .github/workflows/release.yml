@@ -1,0 +1,79 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Package the built frontend
+        run: tar -czf dist.tar.gz -C dist .
+
+      - name: Read compatible Dispatcharr version
+        id: compat
+        run: echo "version=$(cat COMPATIBLE_DISPATCHARR_VERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: Substitute compatible version and release tag into install.sh
+        run: |
+          sed -e "s|__DISPATCHARR_EASY_COMPATIBLE_VERSION__|${{ steps.compat.outputs.version }}|" \
+              -e "s|__DISPATCHARR_EASY_RELEASE_TAG__|${{ github.ref_name }}|" \
+            scripts/install.sh > install.sh
+          chmod +x install.sh
+          # Fail loudly rather than publishing an install.sh whose placeholders
+          # never got substituted (e.g. after a placeholder rename here without
+          # a matching rename in install.sh) — this exact class of bug once
+          # shipped a script whose download URL was a literal, unresolvable
+          # placeholder string.
+          if grep -q '__DISPATCHARR_EASY_' install.sh; then
+            echo "::error::install.sh still contains an unsubstituted placeholder" >&2
+            grep -n '__DISPATCHARR_EASY_' install.sh >&2
+            exit 1
+          fi
+
+      - name: Set lowercase image name
+        run: echo "IMAGE=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          build-args: |
+            DISPATCHARR_VERSION=${{ steps.compat.outputs.version }}
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ github.ref_name }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist.tar.gz
+            install.sh
