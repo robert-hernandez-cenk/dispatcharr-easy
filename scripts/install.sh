@@ -154,6 +154,15 @@ do_apply() {
     exit 1
   fi
 
+  if [[ ! -f "$extract_dir/index.html" ]]; then
+    log "[ERROR] $tarball does not contain index.html at its root — expected a flat archive"
+    log "        (package with: tar -czf dist.tar.gz -C dist .). Restoring backup."
+    mv "$backup" "${APP_DIR}/frontend/dist"
+    rm -rf "$extract_dir"
+    [[ "$downloaded" -eq 1 ]] && rm -f "$tarball"
+    exit 1
+  fi
+
   mkdir -p "${APP_DIR}/frontend/dist"
   mv "$extract_dir"/* "${APP_DIR}/frontend/dist"/
   # rm -rf, not rmdir: robust even if a future build ever emits a hidden

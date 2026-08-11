@@ -199,6 +199,21 @@ assert_exit_nonzero "$EXIT" "--apply aborts when --dist-file does not exist"
 assert_eq "old-asset" "$(cat "$TMP6/app/frontend/dist/assets/old.js")" "--apply with missing --dist-file does not modify frontend/dist"
 rm -rf "$TMP6"
 
+# --apply rejects a wrongly-nested tarball (payload sanity check) rather
+# than silently installing a broken site with a success exit code.
+TMP_NESTED="$(mktemp -d)"
+setup_fake_app_dir "$TMP_NESTED/app" "__DISPATCHARR_EASY_COMPATIBLE_VERSION__"
+NESTED_SRC="$(mktemp -d)"
+mkdir -p "$NESTED_SRC/dist"
+echo '<html>nested</html>' >"$NESTED_SRC/dist/index.html"
+tar -czf "$TMP_NESTED/dist.tar.gz" -C "$NESTED_SRC" dist
+rm -rf "$NESTED_SRC"
+OUTPUT=$(APP_DIR="$TMP_NESTED/app" bash "$INSTALL_SH" --apply --dist-file "$TMP_NESTED/dist.tar.gz" 2>&1)
+EXIT=$?
+assert_exit_nonzero "$EXIT" "--apply rejects a wrongly-nested tarball"
+assert_eq "old-asset" "$(cat "$TMP_NESTED/app/frontend/dist/assets/old.js")" "rejected nested tarball does not modify frontend/dist"
+rm -rf "$TMP_NESTED"
+
 echo "=== --revert tests ==="
 
 # --revert restores the most recent backup.
