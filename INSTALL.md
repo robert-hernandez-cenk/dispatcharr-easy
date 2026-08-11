@@ -80,7 +80,7 @@ and point `--apply` at it directly instead of letting the script download
 it:
 
 ```bash
-./install.sh --apply --dist-file /path/to/dist.tar.gz
+sudo ./install.sh --apply --dist-file /path/to/dist.tar.gz
 ```
 
 ### Forcing an install on an unverified Dispatcharr version
