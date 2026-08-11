@@ -6,6 +6,10 @@ REPO="robert-hernandez-cenk/dispatcharr-easy"
 # this script is published as a release asset. Stays literal in this repo's
 # own working copy — do not rely on it being a real version number here.
 COMPATIBLE_VERSION="__DISPATCHARR_EASY_COMPATIBLE_VERSION__"
+# Substituted the same way, but with this project's OWN release tag (e.g.
+# v0.1.0) — independent of COMPATIBLE_VERSION above, which is Dispatcharr's
+# version. Used to build the release download URL; do not conflate the two.
+RELEASE_TAG="__DISPATCHARR_EASY_RELEASE_TAG__"
 
 APP_DIR="${APP_DIR:-/opt/dispatcharr}"
 MODE="dry-run"
@@ -87,7 +91,9 @@ check_version() {
 }
 
 release_url() {
-  echo "https://github.com/${REPO}/releases/download/v${COMPATIBLE_VERSION}/dist.tar.gz"
+  # RELEASE_TAG already includes the "v" prefix once substituted with a
+  # real tag (e.g. v0.1.0) — do not prepend another one here.
+  echo "https://github.com/${REPO}/releases/download/${RELEASE_TAG}/dist.tar.gz"
 }
 
 backup_path() {

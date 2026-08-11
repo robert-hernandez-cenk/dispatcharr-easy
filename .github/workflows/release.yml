@@ -30,9 +30,10 @@ jobs:
         id: compat
         run: echo "version=$(cat COMPATIBLE_DISPATCHARR_VERSION)" >> "$GITHUB_OUTPUT"
 
-      - name: Substitute compatible version into install.sh
+      - name: Substitute compatible version and release tag into install.sh
         run: |
-          sed "s/__DISPATCHARR_EASY_COMPATIBLE_VERSION__/${{ steps.compat.outputs.version }}/" \
+          sed -e "s/__DISPATCHARR_EASY_COMPATIBLE_VERSION__/${{ steps.compat.outputs.version }}/" \
+              -e "s/__DISPATCHARR_EASY_RELEASE_TAG__/${{ github.ref_name }}/" \
             scripts/install.sh > install.sh
           chmod +x install.sh
 

@@ -113,6 +113,15 @@ assert_eq "old-asset" "$(cat "$TMP1/app/frontend/dist/assets/old.js")" "dry-run 
 assert_contains "$OUTPUT" "Dry run" "dry-run output mentions 'Dry run'"
 rm -rf "$TMP1"
 
+# Dry run's download URL uses RELEASE_TAG, not COMPATIBLE_VERSION (regression
+# guard: these are two independent version numbers — Dispatcharr's own
+# version vs. this project's release tag — and must never be conflated).
+TMP_URL="$(mktemp -d)"
+setup_fake_app_dir "$TMP_URL/app" "__DISPATCHARR_EASY_COMPATIBLE_VERSION__"
+OUTPUT=$(APP_DIR="$TMP_URL/app" bash "$INSTALL_SH" 2>&1)
+assert_contains "$OUTPUT" "releases/download/__DISPATCHARR_EASY_RELEASE_TAG__/dist.tar.gz" "dry-run download URL uses RELEASE_TAG placeholder, not COMPATIBLE_VERSION"
+rm -rf "$TMP_URL"
+
 # Dry run with mismatched version aborts (nonzero exit), still makes no changes.
 TMP2="$(mktemp -d)"
 setup_fake_app_dir "$TMP2/app" "0.27.0"
